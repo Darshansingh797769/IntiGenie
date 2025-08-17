@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IntiGenie • Client Dashboard</title>
+  <meta name="description" content="Client dashboard for IntiGenie PG integrations: KPIs, live charts, filters, webhooks health, reconciliation and exports." />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] },
+          colors: {
+            ig: { 600:'#4f46e5', 500:'#6366f1', 400:'#818cf8' }
+          },
+          boxShadow: {
+            glow: '0 20px 60px -20px rgba(99,102,241,.45)'
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Charts + Export libs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', sans-serif; }
+    .lift { transition: transform .25s ease, box-shadow .25s ease; }
+    .lift:hover { transform: translateY(-4px); box-shadow: var(--tw-shadow), 0 18px 40px -22px rgba(99,102,241,.55); }
+    .badge { @apply text-xs px-2 py-1 rounded-lg border; }
+    .skeleton { position: relative; overflow: hidden; }
+    .skeleton::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent); transform:translateX(-100%); animation: shimmer 1.2s infinite; }
+    @keyframes shimmer { 100% { transform: translateX(100%);} }
+  </style>
+</head>
+<body class="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+  <script> (function(){ const s=localStorage.getItem('theme'); if(s==='dark'){ document.documentElement.classList.add('dark'); }})(); </script>
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 backdrop-blur bg-white/80 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800">
+    <div class="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3 justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-ig-500 via-indigo-400 to-fuchsia-400 shadow-glow"></div>
+        <div class="font-semibold tracking-tight">IntiGenie • Client Dashboard</div>
+        <span id="envBadge" class="hidden sm:inline text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 ml-2">Prod</span>
+      </div>
+      <div class="flex items-center gap-3 text-sm">
+        <div class="hidden md:flex items-center gap-2 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1">
+          <i data-lucide="building-2" class="w-4 h-4"></i>
+          <select id="clientSelect" class="bg-transparent outline-none">
+            <option>Acme University</option>
+            <option>BlueCart D2C</option>
+            <option>NeoHealth</option>
+          </select>
+        </div>
+        <div class="hidden sm:flex items-center gap-2 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1"><i data-lucide="clock-4" class="w-4 h-4"></i><span id="tzNow">IST — --:--</span></div>
+        <button id="themeToggle" class="w-9 h-9 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center" aria-label="Toggle theme">
+          <i data-lucide="sun" class="w-4 h-4 hidden dark:inline"></i>
+          <i data-lucide="moon" class="w-4 h-4 inline dark:hidden"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="mx-auto max-w-7xl px-4 py-6 grid lg:grid-cols-12 gap-6">
+    <!-- Sidebar -->
+    <aside class="lg:col-span-3 xl:col-span-2 space-y-2">
+      <a href="#overview" class="block p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 lift"><i data-lucide="home" class="inline w-4 h-4 mr-2"></i> Overview</a>
+      <a href="#filters" class="block p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 lift"><i data-lucide="sliders-horizontal" class="inline w-4 h-4 mr-2"></i> Filters</a>
+      <a href="#webhooks" class="block p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 lift"><i data-lucide="webhook" class="inline w-4 h-4 mr-2"></i> Webhooks</a>
+      <a href="#recon" class="block p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 lift"><i data-lucide="file-search" class="inline w-4 h-4 mr-2"></i> Reconciliation</a>
+      <a href="#settings" class="block p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 lift"><i data-lucide="settings" class="inline w-4 h-4 mr-2"></i> Settings</a>
+    </aside>
+
+    <!-- Main -->
+    <main id="overview" class="lg:col-span-9 xl:col-span-10 space-y-6">
+      <!-- KPIs -->
+      <section class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="text-xs text-slate-500">Total Volume</div>
+          <div class="text-2xl font-semibold mt-1" id="kpiVolume">₹0</div>
+          <div class="text-xs text-emerald-600 dark:text-emerald-400 mt-1" id="kpiVolumeDelta">+0% vs prev</div>
+        </div>
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="text-xs text-slate-500">Success Rate</div>
+          <div class="text-2xl font-semibold mt-1" id="kpiSuccess">0%</div>
+          <div class="text-xs text-slate-500 mt-1">Last 7 days</div>
+        </div>
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="text-xs text-slate-500">UPI Share</div>
+          <div class="text-2xl font-semibold mt-1" id="kpiUPI">0%</div>
+          <div class="text-xs text-slate-500 mt-1">of successful txns</div>
+        </div>
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="text-xs text-slate-500">Avg Order Value</div>
+          <div class="text-2xl font-semibold mt-1" id="kpiAOV">₹0</div>
+          <div class="text-xs text-slate-500 mt-1">mean successful</div>
+        </div>
+      </section>
+
+      <!-- Charts -->
+      <section class="grid lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-semibold">Payments over time</div>
+            <div class="text-xs text-slate-500">Last 30 days</div>
+          </div>
+          <canvas id="lineChart" height="110"></canvas>
+        </div>
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="font-semibold mb-2">By method</div>
+          <canvas id="barChart" height="110"></canvas>
+        </div>
+      </section>
+
+      <section class="grid lg:grid-cols-3 gap-4">
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+          <div class="font-semibold mb-2">Status mix</div>
+          <canvas id="pieChart" height="110"></canvas>
+        </div>
+        <div id="webhooks" class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift flex flex-col">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-semibold">Webhook health</div>
+            <span id="whBadge" class="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800">Checking…</span>
+          </div>
+          <ul id="webhookList" class="text-sm text-slate-600 dark:text-slate-300 space-y-2 overflow-auto max-h-40"></ul>
+          <button id="simulateWh" class="mt-3 text-xs px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 self-start">Simulate webhook</button>
+        </div>
+        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift flex flex-col">
+          <div class="font-semibold">Exports</div>
+          <div class="text-sm text-slate-600 dark:text-slate-300 mt-2">Download your data or a snapshot of this dashboard.</div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="exportCsv" class="px-3 py-2 rounded-lg bg-ig-600 text-white hover:bg-ig-500 text-sm">Export CSV</button>
+            <button id="exportPdf" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm">Save as PDF</button>
+          </div>
+          <label class="mt-4 text-xs text-slate-500">Performance</label>
+          <div class="flex items-center gap-2 mt-1">
+            <input type="checkbox" id="liveToggle" class="accent-indigo-600" checked>
+            <span class="text-sm">Live simulation (demo)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Filters -->
+      <section id="filters" class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+        <div class="flex flex-wrap items-end gap-3">
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">From</label>
+            <input type="date" id="fromDate" class="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">To</label>
+            <input type="date" id="toDate" class="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Status</label>
+            <select id="statusFilter" class="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2">
+              <option value="">All</option>
+              <option>Success</option>
+              <option>Failed</option>
+              <option>Pending</option>
+              <option>Refunded</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Method</label>
+            <select id="methodFilter" class="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2">
+              <option value="">All</option>
+              <option>UPI</option>
+              <option>Card</option>
+              <option>NetBanking</option>
+              <option>Wallet</option>
+              <option>EMI</option>
+            </select>
+          </div>
+          <div class="grow">
+            <label class="block text-xs text-slate-500 mb-1">Search</label>
+            <input id="searchInput" placeholder="id / name / reference" class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2" />
+          </div>
+          <button id="resetBtn" class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800">Reset</button>
+        </div>
+      </section>
+
+      <!-- Table -->
+      <section class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+        <div class="flex items-center justify-between mb-3">
+          <div class="font-semibold">Transactions</div>
+          <div class="text-xs text-slate-500"><span id="tableCount">0</span> shown</div>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-slate-500">
+              <tr>
+                <th class="py-2 pr-3">ID</th>
+                <th class="py-2 pr-3">Date</th>
+                <th class="py-2 pr-3">Customer</th>
+                <th class="py-2 pr-3">Amount</th>
+                <th class="py-2 pr-3">Method</th>
+                <th class="py-2 pr-3">Status</th>
+                <th class="py-2 pr-3">PG</th>
+                <th class="py-2 pr-3">Reference</th>
+              </tr>
+            </thead>
+            <tbody id="txBody"></tbody>
+          </table>
+        </div>
+        <div class="flex items-center justify-between mt-3">
+          <div class="text-xs text-slate-500">Page <span id="pageNo">1</span></div>
+          <div class="flex gap-2">
+            <button id="prevPage" class="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-800">Prev</button>
+            <button id="nextPage" class="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-800">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Reconciliation -->
+      <section id="recon" class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-semibold">Reconciliation</div>
+          <span class="text-xs text-slate-500">Upload a settlement CSV (columns: id,amount)</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <input type="file" id="settlementFile" accept=".csv" class="text-sm" />
+          <button id="runRecon" class="px-3 py-2 rounded-lg bg-ig-600 text-white hover:bg-ig-500">Run recon</button>
+          <button id="exportMismatches" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800">Export mismatches CSV</button>
+          <div class="text-sm text-slate-600 dark:text-slate-300">Mismatches: <span id="mmCount">0</span></div>
+        </div>
+        <div class="mt-3 overflow-auto max-h-48">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-slate-500"><tr><th class="py-2 pr-3">id</th><th class="py-2 pr-3">file_amount</th><th class="py-2 pr-3">sys_amount</th><th class="py-2 pr-3">note</th></tr></thead>
+            <tbody id="mmBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Settings / API -->
+      <section id="settings" class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lift">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <div class="font-semibold mb-2">API Keys</div>
+            <div class="text-xs text-slate-500 mb-1">Webhook Secret</div>
+            <div class="flex items-center gap-2">
+              <input id="whSecret" value="whsec_****************" class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2" readonly />
+              <button id="copySecret" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800">Copy</button>
+            </div>
+          </div>
+          <div>
+            <div class="font-semibold mb-2">Environment</div>
+            <div class="flex items-center gap-2">
+              <label class="text-sm"><input type="radio" name="env" value="Prod" class="accent-indigo-600" checked> Prod</label>
+              <label class="text-sm"><input type="radio" name="env" value="Staging" class="accent-indigo-600"> Staging</label>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200 dark:border-slate-800 py-6 text-center text-sm text-slate-500">
+    © 2025 IntiGenie. Demo dashboard — replace mock APIs with your backend.
+  </footer>
+
+  <script>
+    // Icons
+    document.addEventListener('DOMContentLoaded', () => { if (window.lucide) window.lucide.createIcons(); });
+
+    // Theme toggle
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const html = document.documentElement; const isDark = html.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light'); if (window.lucide) window.lucide.createIcons();
+    });
+
+    // Clock IST
+    function tick(){ const now = new Date(); const opts = { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Kolkata'}; document.getElementById('tzNow').textContent = 'IST — ' + new Intl.DateTimeFormat('en-IN', opts).format(now); }
+    tick(); setInterval(tick, 30000);
+
+    // Mock data
+    const METHODS = ['UPI','Card','NetBanking','Wallet','EMI'];
+    const STATUSES = ['Success','Failed','Pending','Refunded'];
+    const PGs = ['Razorpay','PayU','Cashfree','Juspay','Stripe','Paytm'];
+    let transactions = [];
+
+    function rand(min, max){ return Math.floor(Math.random()*(max-min+1))+min; }
+    function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+    function genId(){ return 'GQ-' + Math.random().toString(36).slice(2,10).toUpperCase(); }
+    function genName(){ const first=['Aarav','Vihaan','Isha','Kabir','Anaya','Reyansh','Myra','Vivaan','Aanya','Arjun']; const last=['Patel','Sharma','Iyer','Nair','Khan','Das','Reddy','Singh']; return pick(first)+' '+pick(last); }
+
+    function seed(n=80){
+      const now = Date.now();
+      for(let i=0;i<n;i++){
+        const ts = new Date(now - rand(0, 29)*86400000 - rand(0, 86400000));
+        const amount = rand(300, 25000);
+        const status = Math.random()<0.78 ? 'Success' : (Math.random()<0.15 ? 'Failed' : 'Pending');
+        transactions.push({
+          id: genId(), ts, customer: genName(), amount, method: pick(METHODS), status, pg: pick(PGs), ref:'ORD-'+rand(10000,99999)
+        });
+      }
+    }
+    seed();
+
+    // Filters state & pagination
+    let page=1, pageSize=10;
+    function applyFilters(){
+      const from = document.getElementById('fromDate').value ? new Date(document.getElementById('fromDate').value) : null;
+      const to = document.getElementById('toDate').value ? new Date(document.getElementById('toDate').value+'T23:59:59') : null;
+      const st = document.getElementById('statusFilter').value;
+      const m = document.getElementById('methodFilter').value;
+      const q = document.getElementById('searchInput').value.toLowerCase();
+      let rows = transactions.filter(t=>{
+        if(from && t.ts < from) return false;
+        if(to && t.ts > to) return false;
+        if(st && t.status!==st) return false;
+        if(m && t.method!==m) return false;
+        if(q && !(t.id.toLowerCase().includes(q) || t.customer.toLowerCase().includes(q) || t.ref.toLowerCase().includes(q))) return false;
+        return true;
+      }).sort((a,b)=> b.ts - a.ts);
+      return rows;
+    }
+
+    function renderTable(){
+      const rows = applyFilters();
+      const start = (page-1)*pageSize; const slice = rows.slice(start, start+pageSize);
+      const body = document.getElementById('txBody'); body.innerHTML='';
+      slice.forEach(r=>{
+        const tr = document.createElement('tr'); tr.className='border-t border-slate-100 dark:border-slate-800';
+        tr.innerHTML = `
+          <td class="py-2 pr-3 font-mono text-xs">${r.id}</td>
+          <td class="py-2 pr-3">${r.ts.toLocaleString('en-IN')}</td>
+          <td class="py-2 pr-3">${r.customer}</td>
+          <td class="py-2 pr-3">₹${r.amount.toLocaleString('en-IN')}</td>
+          <td class="py-2 pr-3">${r.method}</td>
+          <td class="py-2 pr-3"><span class="text-xs px-2 py-1 rounded-lg border ${r.status==='Success'?'border-emerald-300 text-emerald-700 dark:text-emerald-300':'border-slate-300 dark:border-slate-700'}">${r.status}</span></td>
+          <td class="py-2 pr-3">${r.pg}</td>
+          <td class="py-2 pr-3">${r.ref}</td>`;
+        body.appendChild(tr);
+      });
+      document.getElementById('pageNo').textContent = String(page);
+      document.getElementById('tableCount').textContent = String(rows.length);
+    }
+
+    // KPIs & Charts
+    let lineChart, barChart, pieChart;
+    function recompute(){
+      const data = applyFilters();
+      const total = data.reduce((s,t)=> s+t.amount, 0);
+      const succ = data.filter(t=>t.status==='Success');
+      const rate = data.length? (succ.length/data.length*100):0;
+      const upiShare = succ.length? (succ.filter(t=>t.method==='UPI').length/succ.length*100):0;
+      const aov = succ.length? (succ.reduce((s,t)=>s+t.amount,0)/succ.length):0;
+      document.getElementById('kpiVolume').textContent = '₹'+ total.toLocaleString('en-IN');
+      document.getElementById('kpiSuccess').textContent = rate.toFixed(1)+'%';
+      document.getElementById('kpiUPI').textContent = upiShare.toFixed(1)+'%';
+      document.getElementById('kpiAOV').textContent = '₹'+ Math.round(aov).toLocaleString('en-IN');
+
+      // time buckets (daily)
+      const byDay = {};
+      data.forEach(t=>{ const d = t.ts.toISOString().slice(0,10); byDay[d]=(byDay[d]||0)+t.amount; });
+      const labels = Object.keys(byDay).sort();
+      const values = labels.map(k=>byDay[k]);
+      if(!lineChart){
+        lineChart = new Chart(document.getElementById('lineChart'),{ type:'line', data:{ labels, datasets:[{ label:'Amount', data: values, tension:.35, fill:true }]}, options:{ plugins:{ legend:{ display:false }}, scales:{ x:{ grid:{ display:false }}, y:{ beginAtZero:true }}}});
+      } else { lineChart.data.labels = labels; lineChart.data.datasets[0].data = values; lineChart.update(); }
+
+      // by method (count)
+      const methodCounts = METHODS.map(m=> data.filter(t=>t.method===m).length );
+      if(!barChart){
+        barChart = new Chart(document.getElementById('barChart'), { type:'bar', data:{ labels: METHODS, datasets:[{ label:'Count', data: methodCounts }]}, options:{ plugins:{ legend:{ display:false }}, scales:{ y:{ beginAtZero:true }}}});
+      } else { barChart.data.datasets[0].data = methodCounts; barChart.update(); }
+
+      // status mix
+      const statusCounts = STATUSES.map(s=> data.filter(t=>t.status===s).length );
+      if(!pieChart){
+        pieChart = new Chart(document.getElementById('pieChart'), { type:'doughnut', data:{ labels: STATUSES, datasets:[{ data: statusCounts }]}, options:{ plugins:{ legend:{ position:'bottom' }}}});
+      } else { pieChart.data.datasets[0].data = statusCounts; pieChart.update(); }
+    }
+
+    // Initial render
+    function refresh(){ renderTable(); recompute(); }
+    refresh();
+
+    // Events
+    ['fromDate','toDate','statusFilter','methodFilter','searchInput'].forEach(id=> document.getElementById(id).addEventListener('input', ()=>{ page=1; refresh(); }));
+    document.getElementById('resetBtn').addEventListener('click', ()=>{ ['fromDate','toDate','statusFilter','methodFilter','searchInput'].forEach(id=> document.getElementById(id).value=''); page=1; refresh(); });
+    document.getElementById('prevPage').addEventListener('click', ()=>{ if(page>1){ page--; renderTable(); }});
+    document.getElementById('nextPage').addEventListener('click', ()=>{ const rows = applyFilters(); if(page*pageSize < rows.length){ page++; renderTable(); }});
+
+    // Live simulation
+    let live = true; document.getElementById('liveToggle').addEventListener('change', (e)=> live = e.target.checked);
+    setInterval(()=>{ if(!live) return; // Add a random txn every ~3s
+      const ts = new Date(); const amount = rand(300, 25000); const status = Math.random()<0.82 ? 'Success' : (Math.random()<0.5? 'Failed':'Pending');
+      transactions.push({ id: genId(), ts, customer: genName(), amount, method: pick(METHODS), status, pg: pick(PGs), ref:'ORD-'+rand(10000,99999)});
+      refresh();
+      // webhook entry
+      if(Math.random()<0.6){ addWebhookEvent({type:'payment.captured', id: genId(), ts}); }
+    }, 3000);
+
+    // Webhook health
+    const whList = document.getElementById('webhookList');
+    function addWebhookEvent({type,id,ts}){
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="font-mono text-xs">${id}</span> • ${type} • <span class="text-xs">${ts.toLocaleTimeString('en-IN')}</span>`;
+      whList.prepend(li); if(whList.children.length>8) whList.removeChild(whList.lastChild);
+      updateWhBadge();
+    }
+    function updateWhBadge(){
+      const ok = whList.children.length>0; const b = document.getElementById('whBadge');
+      b.textContent = ok? 'OK' : 'Degraded'; b.className='text-xs px-2 py-1 rounded-lg border ' + (ok? 'border-emerald-300 text-emerald-700 dark:text-emerald-300' : 'border-amber-300 text-amber-700');
+    }
+    updateWhBadge();
+    document.getElementById('simulateWh').addEventListener('click', ()=> addWebhookEvent({type:'payment.captured', id: genId(), ts:new Date()}));
+
+    // CSV export (visible rows)
+    function exportCsv(){
+      const rows = applyFilters();
+      const csv = ['id,date,customer,amount,method,status,pg,reference']
+        .concat(rows.map(r=> [r.id, r.ts.toISOString(), r.customer, r.amount, r.method, r.status, r.pg, r.ref].map(x=> '"'+String(x).replaceAll('"','""')+'"').join(',')))
+        .join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='transactions.csv'; a.click(); URL.revokeObjectURL(url);
+    }
+    document.getElementById('exportCsv').addEventListener('click', exportCsv);
+
+    // PDF export (snapshot of main)
+    async function exportPdf(){
+      const { jsPDF } = window.jspdf; const pdf = new jsPDF('p', 'pt', 'a4');
+      const node = document.querySelector('main');
+      const canvas = await html2canvas(node, { scale: 2, backgroundColor: getComputedStyle(document.body).backgroundColor });
+      const img = canvas.toDataURL('image/png');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
+      const imgW = canvas.width * ratio; const imgH = canvas.height * ratio;
+      pdf.addImage(img, 'PNG', (pageWidth-imgW)/2, 20, imgW, imgH);
+      pdf.save('intigienie-dashboard.pdf');
+    }
+    document.getElementById('exportPdf').addEventListener('click', exportPdf);
+
+    // Recon: parse CSV and compare
+    let mismatches = [];
+    function parseCSV(text){
+      const lines = text.trim().split(/\r?\n/); const out=[]; for(const line of lines.slice(1)){ // skip header
+        const parts = line.split(','); if(parts.length<2) continue; out.push({ id: parts[0].replace(/\"/g,'').replace(/"/g,''), amount: Number(parts[1]) });
+      } return out;
+    }
+    document.getElementById('runRecon').addEventListener('click', async ()=>{
+      const f = document.getElementById('settlementFile').files[0]; if(!f){ alert('Choose a CSV with columns: id,amount'); return; }
+      const text = await f.text(); const items = parseCSV(text);
+      mismatches = [];
+      items.forEach(it=>{
+        const tx = transactions.find(t=> t.id===it.id);
+        if(!tx){ mismatches.push({ id: it.id, file_amount: it.amount, sys_amount: '', note:'Missing in system' }); }
+        else if(Number(tx.amount) !== Number(it.amount)) { mismatches.push({ id: it.id, file_amount: it.amount, sys_amount: tx.amount, note:'Amount mismatch' }); }
+      });
+      document.getElementById('mmCount').textContent = String(mismatches.length);
+      const body = document.getElementById('mmBody'); body.innerHTML='';
+      mismatches.forEach(m=>{ const tr=document.createElement('tr'); tr.className='border-t border-slate-100 dark:border-slate-800'; tr.innerHTML=`<td class='py-2 pr-3 font-mono text-xs'>${m.id}</td><td class='py-2 pr-3'>${m.file_amount}</td><td class='py-2 pr-3'>${m.sys_amount}</td><td class='py-2 pr-3 text-amber-600 dark:text-amber-400'>${m.note}</td>`; body.appendChild(tr); });
+    });
+    document.getElementById('exportMismatches').addEventListener('click', ()=>{
+      const header = 'id,file_amount,sys_amount,note\n';
+      const csv = header + mismatches.map(m=> `${m.id},${m.file_amount},${m.sys_amount},${m.note}`).join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='mismatches.csv'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // Copy secret & env badge
+    document.getElementById('copySecret').addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText('whsec_****************'); alert('Copied'); }catch(e){ alert('Copy failed'); }
+    });
+    document.querySelectorAll('input[name="env"]').forEach(r=> r.addEventListener('change', (e)=>{
+      document.getElementById('envBadge').textContent = e.target.value;
+    }));
+  </script>
+</body>
+</html>
